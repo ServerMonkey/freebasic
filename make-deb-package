@@ -1,0 +1,154 @@
+#!/bin/sh
+# Downloads and builds a Debian package for FreeBASIC
+# https://www.freebasic.net/
+
+# user variables
+# to override the architecture and OS use export:
+# example:
+#   export FB_ARCH="arm"
+#   export FB_OS="raspbian9"
+#   ./make-deb-package "1.09.0"
+# For more information see https://sourceforge.net/projects/fbc/files/
+
+# run from anywhere
+APP_DIR_FULL=$(realpath "$0")
+APP_DIR=$(dirname "$APP_DIR_FULL")
+cd "$APP_DIR" || exit 1
+
+if [ -z "$1" ]; then
+    VERSION="1.10.0"
+fi
+
+if [ -z "$FB_ARCH" ]; then
+    FB_ARCH="x86_64"
+    # x86
+    # arm
+    # aarch64
+fi
+
+if [ -z "$FB_OS" ]; then
+    FB_OS="linux"
+    # raspbian9
+    # rpios11
+    # ubuntu-22.04
+fi
+
+if [ "$FB_OS" = "linux" ]; then
+    OS_PATH="Linux"
+elif [ "$FB_OS" = "raspbian9" ]; then
+    OS_PATH="RaspberryPi"
+elif [ "$FB_OS" = "rpios11" ]; then
+    OS_PATH="RaspberryPi"
+elif [ "$FB_OS" = "ubuntu-22.04" ]; then
+    OS_PATH="RaspberryPi"
+else
+    echo "Unknown OS"
+    exit 1
+fi
+
+echo "OS_PATH $OS_PATH"
+
+# variables
+NAME="freebasic"
+URL="https://altushost-swe.dl.sourceforge.net/project/fbc/FreeBASIC-$VERSION/Binaries-$OS_PATH/FreeBASIC-$VERSION-$FB_OS-$FB_ARCH.tar.gz"
+TMP_DOWNLOAD="/tmp/$NAME-$VERSION-$FB_OS-$FB_ARCH.tar.gz"
+
+# try to download hpilo scripts if they don't already exist
+if [ ! -f "$TMP_DOWNLOAD" ]; then
+    echo "Downloading $URL ..."
+    if ! wget -q "$URL" -O "$TMP_DOWNLOAD"; then
+        echo "Failed to download" >&2
+        exit 1
+    fi
+else
+    echo "Existing $TMP_DOWNLOAD found, skipping download"
+fi
+
+# extract files
+echo "Extracting original files"
+TMP_INSTALL="$APP_DIR/$NAME-$VERSION-$FB_OS-$FB_ARCH-tmp"
+rm -rf "$TMP_INSTALL"
+mkdir -p "$TMP_INSTALL" || exit 1
+tar zxf "$TMP_DOWNLOAD" --strip 1 -C "$TMP_INSTALL" || exit 1
+
+# variables
+RELEASES="releases"
+TARGET="DEBIAN"
+PATH_BASE="./$RELEASES/$NAME-$VERSION"
+PATH_INSTALL="$PATH_BASE" # alt: "$PATH_BASE/usr/local"
+PATH_BIN="$PATH_INSTALL/bin"
+PATH_LIB="$PATH_INSTALL/usr/lib"
+PATH_INCLUDE="$PATH_INSTALL/usr/include"
+PATH_SHARE="$PATH_INSTALL/usr/share/$NAME"
+PATH_DOC="$PATH_INSTALL/usr/share/doc/$NAME"
+PATH_MAN="$PATH_INSTALL/usr/share/man/man1"
+PATH_TARGET="$PATH_BASE/$TARGET"
+
+# delete the old build
+echo "Cleaning up old build"
+rm -rf "$PATH_BASE"
+
+# copy relevant files from source to release
+echo "Copying relevant source files"
+mkdir -p "$PATH_BIN" "$PATH_LIB" "$PATH_INCLUDE" "$PATH_SHARE" "$PATH_DOC" \
+    "$PATH_MAN" || exit 1
+mv "$TMP_INSTALL/bin/fbc" "$PATH_BIN/fbc" || exit 1
+gzip -n -9 -c "$TMP_INSTALL/doc/fbc.1" >"$PATH_MAN/fbc.1.gz" || exit 1
+mv "$TMP_INSTALL/doc/lgpl.txt" "$PATH_SHARE/lgpl.txt" || exit 1
+mv "$TMP_INSTALL/doc/gpl.txt" "$PATH_SHARE/gpl.txt" || exit 1
+mv "$TMP_INSTALL/examples/" "$PATH_SHARE/examples/" || exit 1
+mv "$TMP_INSTALL/include/freebasic/" "$PATH_INCLUDE/freebasic/" || exit 1
+mv "$TMP_INSTALL/lib/freebasic/" "$PATH_LIB/freebasic/" || exit 1
+mv "$TMP_INSTALL/readme.txt" "$PATH_DOC/README" || exit 1
+gzip -n -9 -c "$TMP_INSTALL/changelog.txt" >"$PATH_DOC/changelog.gz" || exit 1
+echo "See lgpl.txt and gpl.txt in /usr/share/$NAME" >"$PATH_DOC/copyright"
+
+# convert architecture to debian format
+if [ "$FB_ARCH" = "x86_64" ]; then
+    ARCH="amd64"
+elif [ "$FB_ARCH" = "x86" ]; then
+    ARCH="i386"
+elif [ "$FB_ARCH" = "arm" ]; then
+    ARCH="armhf"
+elif [ "$FB_ARCH" = "aarch64" ]; then
+    ARCH="arm64"
+else
+    echo "Unknown architecture"
+    exit 1
+fi
+
+# create Debian control file
+echo "Creating CONTROL file"
+mkdir -p "$PATH_TARGET" || exit 1
+echo "Package: $NAME
+Version: $VERSION
+Section: devel
+Priority: optional
+Architecture: $ARCH
+Depends: gcc, libncurses5-dev, libffi-dev, libgl1-mesa-dev, libx11-dev, libxext-dev, libxrender-dev, libxrandr-dev, libxpm-dev, libtinfo5, libgpm-dev
+Maintainer: Bodo Endres <dev@muspekaren.se>
+Description: Is a self-hosting compiler and programming language based on BASIC
+ Makes use of the GNU binutils programming tools as backends and can produce
+ console, graphical/GUI executables, dynamic and static libraries. FreeBASIC
+ fully supports the use of C libraries and has partial C++ library support.
+ This lets programmers use and create libraries for C and many other languages.
+ It supports a C style preprocessor, capable of multiline macros, conditional
+ compiling and file inclusion.
+" >"$PATH_TARGET/control"
+
+# build
+echo "Building"
+fakeroot dpkg-deb --build "$PATH_BASE"
+
+# replace latest version
+cd "$RELEASES" || exit 1
+ln -sf "$NAME-$VERSION.deb" "$NAME-LATEST.deb"
+cd "$APP_DIR" || exit 1
+
+# clean up
+echo "Clean up"
+rm -rf "$PATH_BASE" "$TMP_INSTALL"
+
+# check
+echo "Checking:"
+lintian -c "$PATH_BASE.deb"
