@@ -50,10 +50,12 @@ echo "OS_PATH $OS_PATH"
 
 # variables
 NAME="freebasic"
-URL="https://altushost-swe.dl.sourceforge.net/project/fbc/FreeBASIC-$VERSION/Binaries-$OS_PATH/FreeBASIC-$VERSION-$FB_OS-$FB_ARCH.tar.gz"
+URL_HOST="https://altushost-swe.dl.sourceforge.net/project"
+URL_FILE="FreeBASIC-$VERSION-$FB_OS-$FB_ARCH.tar.gz"
+URLfile:///home/bodend/Firecloud/Projects/freebasic/make-deb-package="$URL_HOST/fbc/FreeBASIC-$VERSION/Binaries-$OS_PATH/$URL_FILE"
 TMP_DOWNLOAD="/tmp/$NAME-$VERSION-$FB_OS-$FB_ARCH.tar.gz"
 
-# try to download hpilo scripts if they don't already exist
+# try to download files if they don't already exist
 if [ ! -f "$TMP_DOWNLOAD" ]; then
     echo "Downloading $URL ..."
     if ! wget -q "$URL" -O "$TMP_DOWNLOAD"; then
